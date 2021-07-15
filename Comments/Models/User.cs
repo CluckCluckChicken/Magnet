@@ -23,7 +23,7 @@ namespace Comments.Models
         public string Username { get; set; }
 
         [JsonPropertyName("last_indexed")]
-        public DateTime LastIndexed { get; set; }
+        public DateTime? LastIndexed { get; set; }
 
         [JsonPropertyName("can_index")]
         public bool CanIndex { get; set; }

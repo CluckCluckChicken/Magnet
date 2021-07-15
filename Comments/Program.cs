@@ -1,7 +1,9 @@
 ﻿using Comments.Models;
 using Quartz;
 using Quartz.Impl;
+using Quartz.Impl.Matchers;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -20,6 +22,10 @@ namespace Comments
 
         #endregion
 
+        public static StdSchedulerFactory factory;
+
+        public static IScheduler scheduler;
+
         static async Task Main(string[] args)
         {
             Console.WriteLine("Hello World!");
@@ -27,30 +33,13 @@ namespace Comments
             Configure();
 
             // construct a scheduler factory
-            StdSchedulerFactory factory = new StdSchedulerFactory();
+            factory = new StdSchedulerFactory();
 
             // get a scheduler
-            IScheduler scheduler = await factory.GetScheduler();
+            scheduler = await factory.GetScheduler();
             await scheduler.Start();
 
-            foreach (User user in UserService.Get())
-            {
-                // define the job and tie it to our HelloJob class
-                IJobDetail job = JobBuilder.Create<Indexer>()
-                    .WithIdentity(user.Username, "usernames")
-                    .Build();
-
-                // Trigger the job to run now, and then every 40 seconds
-                ITrigger trigger = TriggerBuilder.Create()
-                    .WithIdentity(user.Username, "usernames")
-                    .StartNow()
-                    .WithSimpleSchedule(x => x
-                        .WithIntervalInSeconds(40)
-                        .RepeatForever())
-                .Build();
-
-                await scheduler.ScheduleJob(job, trigger);
-            }
+            await ScheduleAllUsers();
 
             while (true)
             {
@@ -70,6 +59,59 @@ namespace Comments
             CommentService = new CommentService(Settings);
 
             UserService = new UserService(Settings);
+        }
+
+        public static async Task ScheduleAllUsers()
+        {
+            foreach (User user in UserService.Get())
+            {
+                // define the job and tie it to our HelloJob class
+                IJobDetail job = JobBuilder.Create<Indexer>()
+                    .WithIdentity(user.Username, "usernames")
+                    .Build();
+
+                // Trigger the job to run now, and then every 40 seconds
+                ITrigger trigger = TriggerBuilder.Create()
+                    .WithIdentity(user.Username, "usernames")
+                    .StartNow()
+                    .WithSimpleSchedule(x => x
+                        .WithIntervalInSeconds(30)
+                        .RepeatForever())
+                .Build();
+
+                await scheduler.ScheduleJob(job, trigger);
+            }
+        }
+
+        public static async Task ScheduleUser(User user)
+        {
+            IReadOnlyCollection<JobKey> keys = await scheduler.GetJobKeys(GroupMatcher<JobKey>.GroupContains("usernames"));
+
+            List<JobKey> keysList = new List<JobKey>();
+
+            foreach (JobKey key in keys)
+            {
+                keysList.Add(key);
+            }
+
+            if (keysList.Find(key => key.Name == user.Username) == null)
+            {
+                // define the job and tie it to our HelloJob class
+                IJobDetail job = JobBuilder.Create<Indexer>()
+                    .WithIdentity(user.Username, "usernames")
+                    .Build();
+
+                // Trigger the job to run now, and then every 40 seconds
+                ITrigger trigger = TriggerBuilder.Create()
+                    .WithIdentity(user.Username, "usernames")
+                    .StartNow()
+                    .WithSimpleSchedule(x => x
+                        .WithIntervalInSeconds(30)
+                        .RepeatForever())
+                .Build();
+
+                await scheduler.ScheduleJob(job, trigger);
+            }
         }
     }
 }

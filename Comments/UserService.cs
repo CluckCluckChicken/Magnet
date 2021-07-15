@@ -34,7 +34,7 @@ namespace Comments
 
         public User Create(User user)
         {
-            if (Get(user.Id) == null)
+            if (Get(user.Username) == null)
             {
                 users.InsertOne(user);
             }
