@@ -9,6 +9,13 @@ using System.Threading.Tasks;
 
 namespace Comments.Models
 {
+    public enum LocationType
+    {
+        Project,
+        Profile,
+        Studio
+    }
+
     record Author
     {
         public Author()
@@ -73,6 +80,12 @@ namespace Comments.Models
             //Scratchteam = Username.EndsWith('*');
         }
 
+        [BsonId]
+        [BsonRepresentation(BsonType.ObjectId)]
+        [BsonIgnoreIfDefault]
+        [JsonIgnore]
+        public string BsonId { get; set; }
+
         [JsonPropertyName("id")]
         public int Id { get; set; }
 
@@ -86,11 +99,27 @@ namespace Comments.Models
         public string Image { get; set; }
     }
 
+    record Location
+    {
+        [BsonId]
+        [BsonRepresentation(BsonType.ObjectId)]
+        [BsonIgnoreIfDefault]
+        [JsonIgnore]
+        public string BsonId { get; set; }
+
+        [JsonPropertyName("id")]
+        public string Id { get; set; }
+
+        [JsonPropertyName("type")]
+        public LocationType Type { get; set; }
+    }
+
     record Comment
     {
         [BsonId]
         [BsonRepresentation(BsonType.ObjectId)]
         [BsonIgnoreIfDefault]
+        [JsonIgnore]
         public string BsonId { get; set; }
 
         [JsonPropertyName("id")]
@@ -119,5 +148,8 @@ namespace Comments.Models
 
         [JsonPropertyName("reply_count")]
         public int ReplyCount { get; set; }
+
+        [JsonPropertyName("location")]
+        public Location Location { get; set; }
     }
 }
