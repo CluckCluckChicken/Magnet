@@ -11,22 +11,15 @@ using System.Threading.Tasks;
 
 namespace Comments
 {
-    class Indexer : IJob
+    class Indexer
     {
-        public async Task Execute(IJobExecutionContext context)
-        {
-            await IndexProfileComments(context.JobDetail.Key.Name);
-        }
-
-        // Indexer's gotta index
-        public async Task Index()
-        {
-            await IndexProfileComments("potatophant");
-        }
-
         public async Task IndexProfileComments(string username)
         {
-            //Console.WriteLine(username);
+            DateTime startTime = DateTime.Now;
+
+            //Console.Write($"{username} [");
+
+            //Console.WriteLine($"STARTED {username}");
 
             HttpClient client = new HttpClient();
 
@@ -34,11 +27,17 @@ namespace Comments
 
             for (int page = 1; page <= 67; page++)
             {
-                string response = await client.GetStringAsync($"https://scratch.mit.edu/site-api/comments/user/{username}/?page={page}");
+                HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, $"https://scratch.mit.edu/site-api/comments/user/{username}/?page={page}");
+
+                //request.Headers.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue(Program.Settings.UserAgent));
+
+                var response = await client.SendAsync(request);
+
+                string content = await response.Content.ReadAsStringAsync();
 
                 HtmlDocument html = new HtmlDocument();
 
-                html.LoadHtml(response);
+                html.LoadHtml(content);
 
                 HtmlNodeCollection commentNodes = html.DocumentNode.SelectNodes("//div[@class=\"comment \"]");
 
@@ -49,6 +48,14 @@ namespace Comments
                         HtmlNode info = node.SelectSingleNode(".//div[@class=\"info\"]");
                         HtmlNode user = node.SelectSingleNode(".//a[@id=\"comment-user\"]");
                         string authorName = info.SelectSingleNode(".//div[@class=\"name\"]").InnerText.Trim();
+                        bool isScratchTeam = false;
+
+                        if (authorName.EndsWith('*'))
+                        {
+                            isScratchTeam = true;
+                            authorName.Remove(authorName.Length - 1);
+                        }
+
                         User authorUser = Program.UserService.Get(authorName);
 
                         int authorId = 0;
@@ -62,11 +69,11 @@ namespace Comments
                         {
                             Id = authorId,
                             Username = authorName,
-                            Scratchteam = authorName.EndsWith('*'),
+                            Scratchteam = isScratchTeam,
                             Image = user.SelectSingleNode(".//img[@class=\"avatar\"]").Attributes["src"].Value
                         };
 
-                        await Program.RegisterUserFromAuthor(author);
+                        Program.RegisterUserFromAuthor(author);
 
                         Comment comment = new Comment()
                         {
@@ -78,7 +85,6 @@ namespace Comments
                             DatetimeModified = DateTime.Parse(info.SelectSingleNode(".//span[@class=\"time\"]").Attributes["title"].Value),
                             Visibility = "visible",
                             Author = author,
-                            ReplyCount = 0,
                             Location = new Location()
                             {
                                 Id = username,
@@ -114,7 +120,7 @@ namespace Comments
                                         Image = replyUser.SelectSingleNode(".//img[@class=\"avatar\"]").Attributes["src"].Value
                                     };
 
-                                    await Program.RegisterUserFromAuthor(replyAuthor);
+                                    Program.RegisterUserFromAuthor(replyAuthor);
 
                                     Comment reply = new Comment()
                                     {
@@ -126,29 +132,47 @@ namespace Comments
                                         DatetimeModified = DateTime.Parse(replyInfo.SelectSingleNode(".//span[@class=\"time\"]").Attributes["title"].Value),
                                         Visibility = "visible",
                                         Author = replyAuthor,
-                                        ReplyCount = 0,
                                         Location = new Location()
                                         {
                                             Id = username,
                                             Type = LocationType.Profile
-                                        }
+                                        },
+                                        ReplyIds = null
                                     };
 
                                     replies.Add(reply);
 
                                     comments.Add(reply);
-
-                                    ++comment.ReplyCount;
                                 }
                             }
+
+                            comment.ReplyIds = replies.Select(reply => reply.Id).ToList();
 
                             comments.Add(comment);
                         }
                     }
+
+                    //Console.Write("=");
                 }
             }
 
-            Program.CommentService.Create(comments);
+            //Console.Write("=] ");
+
+            //Console.Write("http done. inserting into db.");
+
+            //Console.WriteLine(Program.CommentService.Create(comments).Count);
+
+            foreach (Comment comment in comments)
+            {
+#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+                Task.Run(() =>
+                {
+                    Program.CommentService.Create(comment);
+                });
+#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+            }
+
+            //Program.CommentService.Create(comments);
 
             User dbUser = Program.UserService.Get(username);
 
@@ -156,7 +180,9 @@ namespace Comments
 
             Program.UserService.Update(username, dbUser);
 
-            Console.WriteLine(username);
+            //Console.WriteLine($" insert done. total {DateTime.Now - startTime}");
+
+            Console.WriteLine($"{username} - {comments.Count} comments");
         }
     }
 }

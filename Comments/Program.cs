@@ -21,11 +21,19 @@ namespace Comments
 
         public static UserService UserService { get; set; }
 
+        public static Indexer Indexer { get; set; }
+
+        public static JobRunner JobRunner { get; set; }
+
         #endregion
 
         public static StdSchedulerFactory factory;
 
         public static IScheduler scheduler;
+
+        public static List<string> Queue { get; set; }
+
+        public static bool indexingEnabled { get; set; }
 
         static async Task Main(string[] args)
         {
@@ -40,7 +48,14 @@ namespace Comments
             scheduler = await factory.GetScheduler();
             await scheduler.Start();
 
-            await ScheduleAllUsers();
+            QueueAllUsers();
+
+#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+            Task.Run(() =>
+            {
+                JobRunner.Go();
+            });
+#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
 
             while (true)
             {
@@ -55,12 +70,18 @@ namespace Comments
                     case "die":
                         Environment.Exit(0);
                         break;
+                    case "pause":
+                        indexingEnabled = false;
+                        break;
+                    case "resume":
+                        indexingEnabled = true;
+                        break;
                     case "index":
                         if (arguments.Length > 0)
                         {
                             string username = arguments[0];
 
-                            await RegisterUser(new User()
+                            RegisterUser(new User()
                             {
                                 Id = 0,
                                 Username = username,
@@ -75,6 +96,45 @@ namespace Comments
                             Console.WriteLine("step on legos");
                         }
                         break;
+                    case "indexonce":
+                        if (arguments.Length > 0)
+                        {
+                            string username = arguments[0];
+
+                            await Indexer.IndexProfileComments(username);
+
+                            Console.WriteLine($"indexed {username} once");
+                        }
+                        else
+                        {
+                            Console.WriteLine("use gimp");
+                        }
+                        break;
+                    case "jobcount":
+                        Console.WriteLine($"current jobcount: {JobRunner.CurrentJobs.Count}");
+                        break;
+                    case "jobs":
+                        Console.WriteLine($"current jobs: {string.Join(", ", JobRunner.CurrentJobs)}");
+                        break;
+                    case "placeinqueue":
+                        if (arguments.Length > 0)
+                        {
+                            string username = arguments[0];
+
+                            if (Queue.Contains(username))
+                            {
+                                Console.WriteLine($"{username} is place {Queue.IndexOf(username) + 1} in the queue");
+                            }
+                            else
+                            {
+                                Console.WriteLine("this user isn't queued. use command \"index\" to add them to the queue");
+                            }
+                        }
+                        else
+                        {
+                            Console.WriteLine("you parse html with regex");
+                        }
+                        break;
                 }
             }
         }
@@ -86,85 +146,63 @@ namespace Comments
             CommentService = new CommentService(Settings);
 
             UserService = new UserService(Settings);
+
+            Indexer = new Indexer();
+
+            JobRunner = new JobRunner();
+
+            Queue = new List<string>();
+
+            indexingEnabled = true;
         }
 
-        public static async Task ScheduleAllUsers()
+        public static void QueueAllUsers()
         {
             foreach (User user in UserService.Get())
             {
-                // define the job and tie it to our HelloJob class
-                IJobDetail job = JobBuilder.Create<Indexer>()
-                    .WithIdentity(user.Username, "usernames")
-                    .Build();
-
-                // Trigger the job to run now, and then every 40 seconds
-                ITrigger trigger = TriggerBuilder.Create()
-                    .WithIdentity(user.Username, "usernames")
-                    .StartNow()
-                    .WithSimpleSchedule(x => x
-                        .WithIntervalInHours(168) // 1 week
-                        //.WithIntervalInSeconds(30)
-                        //.WithRepeatCount(0)
-                        .RepeatForever())
-                        .StartAt(user.LastIndexed == null ? DateTime.Now : user.LastIndexed.Value.AddDays(7))
-                .Build();
-
-                await scheduler.ScheduleJob(job, trigger);
+                if (user.LastIndexed == null ? true : (user.LastIndexed.Value.AddDays(7) - DateTime.Now).Ticks <= 0)
+                {
+                    QueueUser(user);
+                }
             }
         }
 
-        public static async Task ScheduleUser(User user)
+        public static void QueueUser(User user)
         {
-            IReadOnlyCollection<JobKey> keys = await scheduler.GetJobKeys(GroupMatcher<JobKey>.GroupContains("usernames"));
-
-            List<JobKey> keysList = new List<JobKey>();
-
-            foreach (JobKey key in keys)
+            if (!Queue.Contains(user.Username) && !JobRunner.CurrentJobs.Contains(user.Username))
             {
-                keysList.Add(key);
-            }
+                //Console.WriteLine($"queueing {user.Username}");
 
-            if (keysList.Find(key => key.Name == user.Username) == null)
-            {
-                // define the job and tie it to our HelloJob class
-                IJobDetail job = JobBuilder.Create<Indexer>()
-                    .WithIdentity(user.Username, "usernames")
-                    .Build();
-
-                // Trigger the job to run now, and then every 40 seconds
-                ITrigger trigger = TriggerBuilder.Create()
-                    .WithIdentity(user.Username, "usernames")
-                    .StartNow()
-                    .WithSimpleSchedule(x => x
-                        .WithIntervalInHours(168) // 1 week
-                        //.WithIntervalInSeconds(30)
-                        //.WithRepeatCount(0)
-                        .RepeatForever())
-                        .StartNow()                        
-                .Build();
-
-                await scheduler.ScheduleJob(job, trigger);
+                Queue.Add(user.Username);
             }
         }
 
-        public static async Task RegisterUser(User user)
+        public static void RegisterUser(User user)
         {
             UserService.Create(user);
 
-            await ScheduleUser(user);
+            QueueUser(user);
         }
 
-        public static async Task RegisterUserFromAuthor(Author author)
+        public static void RegisterUserFromAuthor(Author author)
         {
-            User user = UserService.Create(new User()
-            {
-                Id = author.Id,
-                Username = author.Username,
-                LastIndexed = null,
-                CanIndex = true
-            });
+            User user = UserService.Get(author.Username);
 
-            await ScheduleUser(user);
+            if (user == null)
+            {
+                user = UserService.Create(new User()
+                {
+                    Id = author.Id,
+                    Username = author.Username,
+                    LastIndexed = null,
+                    CanIndex = true
+                });
+            }
+
+            if (user.LastIndexed == null ? true : (user.LastIndexed.Value.AddDays(7) - DateTime.Now).Ticks <= 0)
+            {
+                QueueUser(user);
+            }
         }
     }
 }

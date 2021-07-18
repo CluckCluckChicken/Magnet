@@ -146,10 +146,10 @@ namespace Comments.Models
         [JsonPropertyName("author")]
         public Author Author { get; set; }
 
-        [JsonPropertyName("reply_count")]
-        public int ReplyCount { get; set; }
-
         [JsonPropertyName("location")]
         public Location Location { get; set; }
+
+        [JsonPropertyName("reply_ids")]
+        public List<int> ReplyIds { get; set; }
     }
 }

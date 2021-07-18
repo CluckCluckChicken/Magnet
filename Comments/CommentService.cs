@@ -45,12 +45,11 @@ namespace Comments
 
         public List<Comment> Create(List<Comment> commentsIn)
         {
-            foreach (Comment comment in commentsIn)
+            commentsIn.RemoveAll(comment => Get().Find(c => c.Id == comment.Id) != null);
+
+            if (commentsIn.Count > 0)
             {
-                if (Get(comment.Id) == null)
-                {
-                    comments.InsertOne(comment);
-                }
+                comments.InsertMany(commentsIn);
             }
 
             return commentsIn;

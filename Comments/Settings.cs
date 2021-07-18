@@ -16,5 +16,7 @@ namespace Comments
     record Settings
     {
         public MongoDBSettings MongoDBSettings { get; set; }
+
+        public string UserAgent { get; set; }
     }
 }
